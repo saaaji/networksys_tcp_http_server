@@ -490,18 +490,18 @@ void* client_func(void* arg) {
             }
             buffer_len = remaining;
             buffer[buffer_len] = '\0';
-
-            if (!conn.keep_alive) {
-                printf("no keep-alive, closing connection...\n");
-
-                // close connection
-                break;
-            }
         }
 
         // discard if request is too large
         if (buffer_len > sizeof(buffer) - 1) {
             buffer_len = 0;
+        }
+
+        if (!conn.keep_alive) {
+            printf("no keep-alive, closing connection...\n");
+
+            // close connection
+            break;
         }
     }
     
