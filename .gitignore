@@ -1,4 +1,4 @@
 build/
-www/
 .vscode/
 grade.py
+server
