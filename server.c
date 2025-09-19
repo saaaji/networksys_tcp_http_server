@@ -11,6 +11,7 @@
 #include <string.h>
 #include <strings.h>
 #include <stdint.h>
+#include <time.h>
 #include <sys/sendfile.h>
 #include <signal.h>
 #include <pthread.h>
@@ -132,6 +133,7 @@ void send_error(int client_fd, int code, const char* version, const connection_t
     dprintf(client_fd, 
         "%s %d %s\r\n"
         "Content-Length: %d\r\n"
+        "Content-Type: text/html\r\n"
         "Connection: %s\r\n"
         "\r\n"
         "%s", 
@@ -147,7 +149,7 @@ const char* get_mime_type(const char* path) {
     const char* ext = strrchr(path, '.');
     if (!ext) return NULL;
 
-    if (strcasecmp(ext, ".html") == 0 || strcmp(ext, ".htm") == 0) return "text/html";
+    if (strcasecmp(ext, ".html") == 0 || strcasecmp(ext, ".htm") == 0) return "text/html";
     if (strcasecmp(ext, ".css") == 0) return "text/css";
     if (strcasecmp(ext, ".js") == 0) return "application/javascript";
     if (strcasecmp(ext, ".png") == 0) return "image/png";
@@ -241,8 +243,11 @@ void find_header_value(
                 if (line_end && line_end < header_end) {
                     size_t field_len = line_end - field_start;
                     if (field_len >= dest_len) field_len = dest_len - 1;
-                    memcpy(dest, field_start, field_len);
-                    dest[field_len] = '\0';
+
+                    if (field_len > 0) {
+                        memcpy(dest, field_start, field_len);
+                        dest[field_len] = '\0';
+                    }
                 }
             }
         }
@@ -453,20 +458,29 @@ void* client_func(void* arg) {
                 if (S_ISDIR(path_st.st_mode)) {
                     // directory, add a slash in case there is none
                     if (full_path[strlen(full_path) - 1] != '/') {
-                        strlcat(full_path, "/", sizeof(full_path));
+                        // strlcat(full_path, "/", sizeof(full_path));
+                        if (strlen(full_path) + 1 < sizeof(full_path)) {
+                            strcat(full_path, "/");
+                        }
                     }
 
                     // if the path is a directory, look for index.html
                     char try_path[PATH_MAX_LEN];
-                    strlcpy(try_path, full_path, sizeof(try_path));
-                    strlcat(try_path, "index.html", sizeof(try_path));
+                    strncpy(try_path, full_path, sizeof(try_path));
+                    size_t remaining = sizeof(try_path) - strlen(try_path) - 1;
+                    if (remaining > strlen("index.html")) {
+                        strncat(try_path, "index.html", remaining);
+                    }
 
                     printf("client asked for '%s' (directory), trying '%s'\n", full_path, try_path);
 
                     if (!IS_OK_APP(serve_file(client_fd, try_path, &request, &conn))) {
                         // try index.htm
-                        strlcpy(try_path, full_path, sizeof(try_path));
-                        strlcat(try_path, "index.htm", sizeof(try_path));
+                        strncpy(try_path, full_path, sizeof(try_path));
+                        size_t remaining = sizeof(try_path) - strlen(try_path) - 1;
+                        if (remaining > strlen("index.htm")) {
+                            strncat(try_path, "index.htm", remaining);
+                        }
 
                         printf("client asked for '%s' (directory), trying '%s'\n", full_path, try_path);
 
@@ -593,7 +607,13 @@ int main(int argc, char* argv[]) {
         }
 
         pthread_t task_id;
-        pthread_create(&task_id, NULL, client_func, client_fd);
+        if (pthread_create(&task_id, NULL, client_func, client_fd) != 0) {
+            printf("could not create thread for client\n");
+            close(*client_fd);
+            free(client_fd);
+            continue;
+        }
+
         pthread_detach(task_id);
     }
 
